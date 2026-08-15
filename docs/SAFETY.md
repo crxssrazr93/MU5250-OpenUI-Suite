@@ -238,7 +238,7 @@ feature that drives an external proxy binary. See AGENT.md.)
 
 ## 6. Residual risks (accepted, documented)
 
-- `zunlock.py` restore path: inherent to the unlock; mitigations in place.
+- `zunlock.py` restore path: inherent to the unlock, with mitigations in place.
 - NCM gadget rebuild: runtime only, recoverable by a reboot.
 - `zwrt_bsp.charger set` can stop charging. The charge-limit enforcer re-enables
   charging when you unplug the charger, and when you disable it. The API exposes a
