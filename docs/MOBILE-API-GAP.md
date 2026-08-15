@@ -311,3 +311,24 @@ blank-field bugs live, it is pure Kotlin, and it had no tests at all.
   nothing routes to it, so it can no longer open on an error.
 
 Unserved endpoints are now 23, of which about 20 are deliberate.
+
+## Android app parity with the dashboard
+
+The Android app reimplements each screen by hand rather than sharing the
+dashboard's React code, so it can lag it. Four features the agent serves and the
+dashboard exposes had no reachable Android screen; all four are now built to
+parity, keeping the dashboard's confirm gates, identifier masking and reboot
+handling:
+
+| Feature | Reached from | Backed by |
+| --- | --- | --- |
+| eSIM | Router settings, Cellular | the existing `ESIMViewModel` and in-app relay, which had no screen rendering them |
+| WireGuard | Router settings, Connectivity | new parser, ViewModel and screen over `/api/tunnel/wireguard*` |
+| TTL override | Tools | new screen over `/api/ttl*`, replacing a disabled "requires ADB" placeholder |
+| Operator selection | Router settings, Cellular | new parser, ViewModel and screen over `/api/operator*` |
+
+`walk-app.py` covers all four. USSD (`/api/ussd/*`) remains served with no UI in
+either front end, which is the last read/write feature without a screen.
+
+Verified on the emulator against the live agent: all 30 Android screens open
+clean, with no error text, no all-placeholder screens, and no `FATAL EXCEPTION`.

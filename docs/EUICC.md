@@ -349,11 +349,27 @@ confirmation that the certificate there is the right one — see
 reachable on this card**: a profile can be found without an activation code by
 asking `lpa.ds.gsma.com` what is waiting for this EID.
 
+## Client support
+
+Profile management is available in both front ends:
+
+- **Dashboard** (served on the router, `:8080`) and the **desktop app**, which
+  wraps the same dashboard: the eSIM tab under Modem. The dashboard cannot carry
+  the relay itself, because the ES9+ requests are cross-origin and SM-DP+
+  servers do not answer CORS preflights. For a router with no WAN, run the relay
+  client (`scripts/relay-client.py`) alongside it.
+- **Android app**: Router settings, Cellular, eSIM. The app carries the relay
+  natively — no separate client is needed. Toggle "Router has no internet" and
+  the phone performs the ES9+ requests itself over its own mobile data while it
+  stays on the router's Wi-Fi.
+
+Step-by-step instructions for downloading and switching profiles are in
+[USAGE.md](USAGE.md#esim).
+
 ## Still to do
 
 - never log activation codes, EID, ICCID, IMSI or bound profile packages —
   currently upheld by review, not by a lint;
-- Android UI for profile management;
 - SM-DS discovery, now that the card has been confirmed to carry a root DS
   address.
 
