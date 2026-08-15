@@ -57,8 +57,6 @@ reports it.
 | Domain filtering | `/api/firewall/domain-filter`, `/api/firewall/domain-filter/rule` | `dnsquery_action`, `dnsquery_target` |
 | Airplane / radio | `/api/modem/airplane`, `/api/modem/online` | `zte_nwinfo_api` `nwinfo_set_mode` (`low_power` / `online`). The eSIM switch fix already uses it |
 | Neighbour cells | `/api/modem/neighbors` | `nwinfo_get_*` cell reporting |
-| USSD | `/api/ussd/send`, `/api/ussd/respond`, `/api/ussd/cancel` | **Implemented and correct. The network does not answer.** The modem supports USSD (`AT+CUSD=?` returns `+CUSD: (0-2)`). It is registered on the circuit-switched domain (`+CREG: 0,1`). It accepts the request with `OK`. No `+CUSD:` reply then arrives. This was checked on `at_mdm0`, `at_mdm1`, `at_mdm2` and `at_usb0` for 25s. So `no_reply` is the honest answer, not a bug. Most likely USSD is barred for this SIM or plan. Retry on another SIM before you conclude anything about the code |
-| STK menus | `/api/stk/menu`, `/api/stk/select` | **Not available.** No STK or USSD ubus methods exist at all (`ubus -v list` matches zero). Menu browsing would need `+CUSATP` or `+STKPRO`. Those are vendor-specific and unverified here. This is the same missing CAT path that makes eSIM REFRESH fail. So a profile switch needs a reboot |
 
 ## 3. No firmware backing: must be built in the agent
 
@@ -79,33 +77,38 @@ right. Each has its own storage and scheduling.
 | Power | `/api/device/power-save`, `/api/device/fast-boot` | vendor power policy |
 | Factory reset | `/api/device/factory-reset` | deliberately absent here. `fac_reset` exists but is irreversible and unguarded |
 
-### Corrections
+### USSD and STK: investigated, then removed
 
-This entry was wrong twice before it was right. So the reasoning is kept rather
-than tidied away.
+USSD and STK were both dropped from the agent and the apps after an exhaustive
+search found no working path on this firmware (`XCBZ_HK_MU5250V1.0.0B04`):
 
-1. USSD was first grouped with STK as unavailable, because the firmware exposes
-   no usable CAT path. That holds for STK menus only. The two reach the modem by
-   different routes, and the AT port answers for USSD.
-2. A single `+CME ERROR: no network service` was read off `/dev/at_mdm0`. It was
-   then taken as proof of a data-only device with no CS attach. Separately, it
-   was taken as proof of a defect in the agent's serial read path. Both readings
-   were wrong. `AT+CREG?` reports `0,1`, so the device *is* CS-registered. The
-   agent's reader captures `OK`, `+CREG:` and `+CGREG:` correctly. That one error
-   came from a port left in a different state by an earlier session. Comparing it
-   against an agent call was not like-for-like.
+- **No UI.** The stock web UI ships no USSD or STK page. Only login, password,
+  privacy and welcome templates exist.
+- **No ubus method.** Every one of the 132 ubus objects was scanned. None exposes
+  a USSD or STK method. The only working web API on this build is ubus-over-HTTP
+  at `/ubus/`.
+- **The legacy goform is not served.** The USSD code left in the vendor
+  `service_rpc.js` targets `/goform/goform_set_cmd_process`, which returns 404 on
+  this build. It is dead code from a shared ZTE bundle.
+- **QMI Voice refuses it.** A correct QMI Voice (0x09) `ORIGINATE_USSD` client was
+  written and tested on the device. The modem accepted the request and echoed the
+  code back as ASCII, then failed the origination with a supplementary-service
+  error (92 sync, 94 no-wait), and no answering `USSD_IND` ever arrived. This held
+  for every code, despite `domain_stat: CS_PS` (registered on both domains).
+- **The AT path cannot read the reply.** `/dev/at_mdm*` are held by a
+  `port-bridge` daemon, so a raw `AT+CUSD` reply URC never reaches the agent.
 
-The lesson worth keeping: a single reading off a serial port is not evidence. The
-port is stateful. One observation taken alone produced two confident and
-incorrect diagnoses.
+The one durable lesson from the earlier debugging: a single reading off a serial
+port is not evidence. The port is stateful, and one observation taken alone
+produced two confident and incorrect diagnoses (a "data-only device" and a
+"broken serial reader") that `AT+CREG? -> 0,1` later disproved.
 
 ## Order of work
 
 1. ~~**Group 1**~~. Done. Sixteen endpoints, verified on hardware.
 2. ~~**SIM PIN, airplane, firewall, port forwarding, domain filtering, DNS/DoH**~~.
    Done. Thirteen endpoints, verified on hardware.
-3. **USSD**, now that the AT path is confirmed. It needs an unsolicited-response
-   reader. Nothing in the agent has one yet.
+3. ~~**USSD**~~. Removed. No working path exists on this firmware (see above).
 4. ~~**Scheduler**~~. Done, on `/data` plus the existing `rc.local` entry.
    Scheduled reboot rides on it.
 5. Everything else, by whichever screen is actually wanted. SMS forwarding was
@@ -132,7 +135,7 @@ someone tapped a screen and sent a screenshot:
 - **No `X-Confirm`.** Twenty-six calls hit routes in `DESTRUCTIVE_PATHS` without
   the confirming helper. So the agent refused them. This covered band lock, cell
   lock, reboot, DoH, port forwarding, operator scan and select, SIM PIN and PUK,
-  USSD, the scheduler and every domain-filter write.
+  the scheduler and every domain-filter write.
 
 `scripts/check-mobile-methods.py` reports both. It reads the verbs out of
 `server.rs` and `DESTRUCTIVE_PATHS` out of the same file. So it cannot drift from
@@ -328,8 +331,7 @@ reboot handling:
 | TTL override | Tools | new screen over `/api/ttl*`, replacing a disabled "requires ADB" placeholder |
 | Operator selection | Router settings, Cellular | new parser, ViewModel and screen over `/api/operator*` |
 
-`walk-app.py` covers all four. USSD (`/api/ussd/*`) remains served with no UI in
-either front end. It is the last read/write feature without a screen.
+`walk-app.py` covers all four.
 
 This was verified on the emulator against the live agent. All 30 Android screens
 open clean, with no error text, no all-placeholder screens, and no `FATAL

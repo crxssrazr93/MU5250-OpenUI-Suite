@@ -17,15 +17,12 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 /**
- * Entries are missing for STK, Guest WiFi and QoS on purpose.
+ * Entries are missing for Guest WiFi and QoS on purpose.
  *
- * STK has no firmware surface on this device at all — the same gap that stops
- * an eSIM profile switch taking effect without a reboot. Guest WiFi and QoS do
- * work, but the stock web UI already provides them, so duplicating them here
- * would mean two controls over one setting.
- *
- * See docs/MOBILE-API-GAP.md. The screens remain in the source; only the way in
- * is gone, so restoring one is a single line.
+ * Both work, but the stock web UI already provides them, so duplicating them
+ * here would mean two controls over one setting. See docs/MOBILE-API-GAP.md.
+ * The screens remain in the source; only the way in is gone, so restoring one
+ * is a single line.
  */
 fun RouterSettingsListScreen(
     onNavigateToMobileNetwork: () -> Unit,
@@ -36,7 +33,6 @@ fun RouterSettingsListScreen(
     onNavigateToSignalDetect: () -> Unit,
     onNavigateToSIM: () -> Unit,
     onNavigateToESIM: () -> Unit,
-    onNavigateToSTK: () -> Unit,
     onNavigateToWiFi: () -> Unit,
     onNavigateToGuestWiFi: () -> Unit,
     onNavigateToAPN: () -> Unit,

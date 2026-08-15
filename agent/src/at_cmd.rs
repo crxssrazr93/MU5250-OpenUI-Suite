@@ -85,22 +85,8 @@ impl Drop for StopGuard {
     }
 }
 
+/// Send a command and read until `OK` or `ERROR` appears, or the timeout.
 fn raw_send(port_path: &str, command: &str, timeout_secs: u64) -> Result<String, String> {
-    raw_send_until(port_path, command, timeout_secs, None)
-}
-
-/// Send a command and read until `marker` appears, rather than until `OK`.
-///
-/// Some answers are unsolicited: the modem acknowledges the command with `OK`
-/// and then sends the real result on its own line seconds later. USSD is the
-/// case that needs this — stopping at `OK` returns an empty acknowledgement and
-/// throws away the network's reply, which arrives afterwards.
-fn raw_send_until(
-    port_path: &str,
-    command: &str,
-    timeout_secs: u64,
-    marker: Option<&str>,
-) -> Result<String, String> {
     let rd = OpenOptions::new()
         .read(true)
         .open(port_path)
@@ -160,12 +146,7 @@ fn raw_send_until(
             break;
         }
         let buf = buffer.lock().unwrap_or_else(|e| e.into_inner());
-        let done = match marker {
-            // Still stop early on a refusal: waiting out the full timeout for a
-            // reply the modem has already declined to send helps nobody.
-            Some(marker) => buf.contains(marker) || buf.contains("ERROR"),
-            None => buf.contains("OK") || buf.contains("ERROR"),
-        };
+        let done = buf.contains("OK") || buf.contains("ERROR");
         if done {
             break;
         }
@@ -186,16 +167,4 @@ pub fn send(at_port: &AtPort, command: &str, timeout_secs: u64) -> Result<String
     let _guard = at_port.lock.safe_lock();
     let port = at_port.detect().ok_or("no serial port found")?;
     raw_send(&port, command, timeout_secs)
-}
-
-/// Send a command and wait for an unsolicited line containing `marker`.
-pub fn send_awaiting(
-    at_port: &AtPort,
-    command: &str,
-    timeout_secs: u64,
-    marker: &str,
-) -> Result<String, String> {
-    let _guard = at_port.lock.safe_lock();
-    let port = at_port.detect().ok_or("no serial port found")?;
-    raw_send_until(&port, command, timeout_secs, Some(marker))
 }

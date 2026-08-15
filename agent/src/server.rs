@@ -16,7 +16,6 @@ use crate::router;
 use crate::compat;
 use crate::dns;
 use crate::scheduler;
-use crate::ussd;
 use crate::firewall;
 use crate::simlock;
 use crate::operator;
@@ -110,8 +109,6 @@ const DESTRUCTIVE_PATHS: &[&str] = &[
     "/api/scheduler/jobs",
     "/api/scheduler/jobs/delete",
     "/api/device/schedule-reboot",
-    "/api/ussd/send",
-    "/api/ussd/respond",
     "/api/firewall/config",
     "/api/firewall/port-forward",
     "/api/firewall/domain-filter/rule",
@@ -328,10 +325,6 @@ pub fn route(
         (&Method::Post, "/api/scheduler/jobs/delete") => scheduler::jobs_delete(state, body),
         (&Method::Get, "/api/device/schedule-reboot") => scheduler::schedule_reboot(state, false, body),
         (&Method::Post, "/api/device/schedule-reboot") => scheduler::schedule_reboot(state, true, body),
-
-        (&Method::Post, "/api/ussd/send") => ussd::ussd_send(state, body),
-        (&Method::Post, "/api/ussd/respond") => ussd::ussd_respond(state, body),
-        (&Method::Post, "/api/ussd/cancel") => ussd::ussd_cancel(state, body),
 
         (&Method::Get, "/api/doh") => dns::doh_get(state),
         (&Method::Post, "/api/doh") => dns::doh_set(state, body),

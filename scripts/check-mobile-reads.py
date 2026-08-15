@@ -26,9 +26,9 @@ and bad at being a gate, because a key that only appears in a state the router
 is not currently in looks identical to a typo. This one is narrow on purpose —
 one route, one parser — so a miss is a defect rather than a suspect.
 
-Writes are deliberately not exercised. Locking a band, adding a firewall rule
-or sending a USSD code all change the router, and a test that has to be undone
-is not a test anyone runs. Those bodies are covered by unit tests in the agent,
+Writes are deliberately not exercised. Locking a band or adding a firewall rule
+both change the router, and a test that has to be undone is not a test anyone
+runs. Those bodies are covered by unit tests in the agent,
 where the translation into vendor field names lives.
 
     python3 scripts/check-mobile-reads.py --password <agent-password>

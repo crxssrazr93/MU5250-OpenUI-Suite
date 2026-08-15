@@ -69,8 +69,6 @@ IGNORE = {
 DEAD_SCREENS = (
     "SMSForwardModels.kt",
     "speedtest/",
-    "STKModels.kt",
-    "stk/",
 )
 
 # Only GETs are swept, so a key read from a POST response is unmatched here for

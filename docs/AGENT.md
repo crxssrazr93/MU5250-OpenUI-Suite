@@ -40,7 +40,6 @@ families.
 | SIM | `GET /api/sim/info`, `/api/sim/imei`, plus the PIN and PUK flows |
 | eUICC (eSIM) | status, EID, profiles, chip info, download, enable, disable, delete, nickname, notifications, and the relay. See [EUICC.md](EUICC.md) |
 | WireGuard | `GET+POST /api/tunnel/wireguard`, connect, disconnect, keygen, and the profile library |
-| USSD | `POST /api/ussd/send`, `/api/ussd/respond`, `/api/ussd/cancel` |
 | USB | `GET /api/usb/status`, `PUT /api/usb/mode`, `/api/usb/default`, `/api/usb/powerbank` |
 | Power | `GET+PUT /api/device/charge-control`. Manual stop and resume, plus a limit enforcer with hysteresis, driven by `BSP_CHARGER_EVENT` |
 | Scheduler | `GET /api/scheduler/jobs`, plus job add and delete |

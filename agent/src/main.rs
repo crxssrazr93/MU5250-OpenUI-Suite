@@ -27,7 +27,6 @@ mod tunnel;
 mod wgprofiles;
 mod ubus;
 mod usb;
-mod ussd;
 mod util;
 mod validate;
 mod wifi;

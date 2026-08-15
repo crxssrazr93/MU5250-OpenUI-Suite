@@ -35,7 +35,6 @@ import com.openu60.feature.router.esim.ESIMScreen
 import com.openu60.feature.router.lan.LANSettingsScreen
 import com.openu60.feature.router.sim.SIMScreen
 import com.openu60.feature.router.stc.STCScreen
-import com.openu60.feature.router.stk.STKScreen
 import com.openu60.feature.router.qos.QoSScreen
 import com.openu60.feature.router.telemetry.TelemetryBlockerScreen
 import com.openu60.feature.router.vpn.VPNPassthroughScreen
@@ -105,7 +104,6 @@ sealed class Screen(val route: String) {
     data object CellLock : Screen("router/cell_lock")
     data object SIM : Screen("router/sim")
     data object ESIM : Screen("router/esim")
-    data object STK : Screen("router/stk")
     data object WiFiSettings : Screen("router/wifi")
     data object GuestWiFi : Screen("router/guest_wifi")
     data object APN : Screen("router/apn")
@@ -217,7 +215,6 @@ fun AppNavigation() {
                     onNavigateToSignalDetect = { navController.navigate(Screen.SignalDetect.route) },
                     onNavigateToSIM = { navController.navigate(Screen.SIM.route) },
                     onNavigateToESIM = { navController.navigate(Screen.ESIM.route) },
-                    onNavigateToSTK = { navController.navigate(Screen.STK.route) },
                     onNavigateToWiFi = { navController.navigate(Screen.WiFiSettings.route) },
                     onNavigateToGuestWiFi = { navController.navigate(Screen.GuestWiFi.route) },
                     onNavigateToAPN = { navController.navigate(Screen.APN.route) },
@@ -335,9 +332,6 @@ fun AppNavigation() {
             }
             composable(Screen.ESIM.route) {
                 ESIMScreen(onBack = { navController.popBackStack() })
-            }
-            composable(Screen.STK.route) {
-                STKScreen(onBack = { navController.popBackStack() })
             }
             composable(Screen.WiFiSettings.route) {
                 WiFiSettingsScreen(onBack = { navController.popBackStack() })
