@@ -29,7 +29,9 @@ import com.openu60.feature.router.celllock.CellLockScreen as RouterCellLockScree
 import com.openu60.feature.router.firewall.FirewallSettingsScreen
 import com.openu60.feature.router.mobilenetwork.MobileNetworkScreen
 import com.openu60.feature.router.networkmode.NetworkModeScreen
+import com.openu60.feature.router.operator.OperatorScreen
 import com.openu60.feature.router.device.DeviceControlScreen
+import com.openu60.feature.router.esim.ESIMScreen
 import com.openu60.feature.router.lan.LANSettingsScreen
 import com.openu60.feature.router.sim.SIMScreen
 import com.openu60.feature.router.stc.STCScreen
@@ -41,6 +43,7 @@ import com.openu60.feature.router.dns.DNSSettingsScreen
 import com.openu60.feature.router.dns.DoHCacheInspectorScreen
 import com.openu60.feature.router.wifi.GuestWiFiSettingsScreen
 import com.openu60.feature.router.wifi.WiFiSettingsScreen
+import com.openu60.feature.router.wireguard.WireGuardScreen
 import com.openu60.feature.settings.SettingsScreen
 import com.openu60.feature.signal.SignalMonitorScreen
 import com.openu60.feature.sms.SMSComposeScreen
@@ -58,6 +61,7 @@ import com.openu60.feature.tools.PlaceholderScreen
 import com.openu60.feature.tools.ToolsListScreen
 import com.openu60.feature.tools.atterminal.ATTerminalScreen
 import com.openu60.feature.tools.process.ProcessListScreen
+import com.openu60.feature.tools.ttl.TTLScreen
 import com.openu60.feature.tools.speedtest.LANSpeedTestScreen
 import com.openu60.feature.tools.speedtest.SpeedTestScreen
 import com.openu60.feature.usb.USBModeScreen
@@ -92,18 +96,22 @@ sealed class Screen(val route: String) {
     data object LANSpeedTest : Screen("tools/lan_speed_test")
     data object ProcessList : Screen("tools/process_list")
     data object ATTerminal : Screen("tools/at_terminal")
+    data object TTL : Screen("tools/ttl")
 
     // Router settings sub-screens
     data object MobileNetwork : Screen("router/mobile_network")
     data object NetworkMode : Screen("router/network_mode")
+    data object Operator : Screen("router/operator")
     data object CellLock : Screen("router/cell_lock")
     data object SIM : Screen("router/sim")
+    data object ESIM : Screen("router/esim")
     data object STK : Screen("router/stk")
     data object WiFiSettings : Screen("router/wifi")
     data object GuestWiFi : Screen("router/guest_wifi")
     data object APN : Screen("router/apn")
     data object LANSettings : Screen("router/lan")
     data object DNSSettings : Screen("router/dns")
+    data object WireGuard : Screen("router/wireguard")
     data object Firewall : Screen("router/firewall")
     data object TelemetryBlocker : Screen("router/telemetry_blocker")
     data object VPNPassthrough : Screen("router/vpn_passthrough")
@@ -203,16 +211,19 @@ fun AppNavigation() {
                 RouterSettingsListScreen(
                     onNavigateToMobileNetwork = { navController.navigate(Screen.MobileNetwork.route) },
                     onNavigateToNetworkMode = { navController.navigate(Screen.NetworkMode.route) },
+                    onNavigateToOperator = { navController.navigate(Screen.Operator.route) },
                     onNavigateToCellLock = { navController.navigate(Screen.CellLock.route) },
                     onNavigateToSTC = { navController.navigate(Screen.STC.route) },
                     onNavigateToSignalDetect = { navController.navigate(Screen.SignalDetect.route) },
                     onNavigateToSIM = { navController.navigate(Screen.SIM.route) },
+                    onNavigateToESIM = { navController.navigate(Screen.ESIM.route) },
                     onNavigateToSTK = { navController.navigate(Screen.STK.route) },
                     onNavigateToWiFi = { navController.navigate(Screen.WiFiSettings.route) },
                     onNavigateToGuestWiFi = { navController.navigate(Screen.GuestWiFi.route) },
                     onNavigateToAPN = { navController.navigate(Screen.APN.route) },
                     onNavigateToLAN = { navController.navigate(Screen.LANSettings.route) },
                     onNavigateToDNS = { navController.navigate(Screen.DNSSettings.route) },
+                    onNavigateToWireGuard = { navController.navigate(Screen.WireGuard.route) },
                     onNavigateToFirewall = { navController.navigate(Screen.Firewall.route) },
                     onNavigateToTelemetryBlocker = { navController.navigate(Screen.TelemetryBlocker.route) },
                     onNavigateToVPNPassthrough = { navController.navigate(Screen.VPNPassthrough.route) },
@@ -235,6 +246,7 @@ fun AppNavigation() {
                     onNavigateToSMSForward = { navController.navigate(Screen.SMSForwardConfig.route) },
                     onNavigateToProcessList = { navController.navigate(Screen.ProcessList.route) },
                     onNavigateToATTerminal = { navController.navigate(Screen.ATTerminal.route) },
+                    onNavigateToTTL = { navController.navigate(Screen.TTL.route) },
                     onNavigateToPlaceholder = { title ->
                         navController.navigate(Screen.Placeholder.createRoute(title))
                     },
@@ -301,6 +313,9 @@ fun AppNavigation() {
             composable(Screen.ATTerminal.route) {
                 ATTerminalScreen(onBack = { navController.popBackStack() })
             }
+            composable(Screen.TTL.route) {
+                TTLScreen(onBack = { navController.popBackStack() })
+            }
 
             // Router settings sub-screens
             composable(Screen.MobileNetwork.route) {
@@ -309,11 +324,17 @@ fun AppNavigation() {
             composable(Screen.NetworkMode.route) {
                 NetworkModeScreen(onBack = { navController.popBackStack() })
             }
+            composable(Screen.Operator.route) {
+                OperatorScreen(onBack = { navController.popBackStack() })
+            }
             composable(Screen.CellLock.route) {
                 RouterCellLockScreen(onBack = { navController.popBackStack() })
             }
             composable(Screen.SIM.route) {
                 SIMScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Screen.ESIM.route) {
+                ESIMScreen(onBack = { navController.popBackStack() })
             }
             composable(Screen.STK.route) {
                 STKScreen(onBack = { navController.popBackStack() })
@@ -338,6 +359,9 @@ fun AppNavigation() {
             }
             composable(Screen.DoHCache.route) {
                 DoHCacheInspectorScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Screen.WireGuard.route) {
+                WireGuardScreen(onBack = { navController.popBackStack() })
             }
             composable(Screen.Firewall.route) {
                 FirewallSettingsScreen(onBack = { navController.popBackStack() })

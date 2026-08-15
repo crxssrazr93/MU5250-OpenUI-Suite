@@ -40,6 +40,7 @@ fun ToolsListScreen(
     onNavigateToSMSForward: () -> Unit,
     onNavigateToProcessList: () -> Unit,
     onNavigateToATTerminal: () -> Unit,
+    onNavigateToTTL: () -> Unit,
     onNavigateToPlaceholder: (String) -> Unit,
 ) {
     Scaffold(
@@ -115,6 +116,12 @@ fun ToolsListScreen(
                 subtitle = "Send raw AT commands to modem",
                 onClick = onNavigateToATTerminal,
             )
+            ToolItem(
+                icon = Icons.Default.Timer,
+                title = "TTL Override",
+                subtitle = "Rewrite hop limit to hide tethering",
+                onClick = onNavigateToTTL,
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -136,13 +143,6 @@ fun ToolsListScreen(
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp),
-            )
-            ToolItem(
-                icon = Icons.Default.Timer,
-                title = "TTL Fix",
-                subtitle = "Requires ADB USB connection",
-                onClick = { onNavigateToPlaceholder("TTL Fix") },
-                enabled = false,
             )
             ToolItem(
                 icon = Icons.Default.Terminal,

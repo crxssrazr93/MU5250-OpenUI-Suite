@@ -65,12 +65,15 @@ SCREENS = {
     "Router": [
         "Mobile Network",
         "Network Mode",
+        "Operator Selection",
         "Cell Lock",
         "SIM Card",
+        "eSIM",
         "WiFi",
         "APN",
         "LAN / DHCP",
         "DNS",
+        "WireGuard VPN",
         "Firewall",
         "Telemetry Blocker",
         "Device Controls",
@@ -85,6 +88,7 @@ SCREENS = {
         "LAN Speed Test",
         "Process Monitor",
         "AT Terminal",
+        "TTL Override",
         "Config Decrypt/Encrypt",
     ],
 }

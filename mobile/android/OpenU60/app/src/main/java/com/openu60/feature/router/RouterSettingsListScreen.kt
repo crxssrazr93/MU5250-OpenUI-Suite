@@ -30,16 +30,19 @@ import androidx.compose.ui.unit.dp
 fun RouterSettingsListScreen(
     onNavigateToMobileNetwork: () -> Unit,
     onNavigateToNetworkMode: () -> Unit,
+    onNavigateToOperator: () -> Unit,
     onNavigateToCellLock: () -> Unit,
     onNavigateToSTC: () -> Unit,
     onNavigateToSignalDetect: () -> Unit,
     onNavigateToSIM: () -> Unit,
+    onNavigateToESIM: () -> Unit,
     onNavigateToSTK: () -> Unit,
     onNavigateToWiFi: () -> Unit,
     onNavigateToGuestWiFi: () -> Unit,
     onNavigateToAPN: () -> Unit,
     onNavigateToLAN: () -> Unit,
     onNavigateToDNS: () -> Unit,
+    onNavigateToWireGuard: () -> Unit,
     onNavigateToFirewall: () -> Unit,
     onNavigateToTelemetryBlocker: () -> Unit,
     onNavigateToVPNPassthrough: () -> Unit,
@@ -64,6 +67,7 @@ fun RouterSettingsListScreen(
             SectionHeader("Cellular")
             SettingsItem(Icons.Default.CellTower, "Mobile Network", onClick = onNavigateToMobileNetwork)
             SettingsItem(Icons.Default.SettingsInputAntenna, "Network Mode", onClick = onNavigateToNetworkMode)
+            SettingsItem(Icons.Default.NetworkCell, "Operator Selection", onClick = onNavigateToOperator)
             SettingsItem(Icons.Default.Lock, "Cell Lock", onClick = onNavigateToCellLock)
             // No Smart Tower Connect entry either. The endpoints are served and
             // return the vendor's real parameters, but enable and disable change
@@ -76,6 +80,7 @@ fun RouterSettingsListScreen(
             // screen renders, so it could only ever open on an error. The
             // screen is left in the tree; see docs/MOBILE-API-GAP.md.
             SettingsItem(Icons.Default.SimCard, "SIM Card", onClick = onNavigateToSIM)
+            SettingsItem(Icons.Default.SimCard, "eSIM", onClick = onNavigateToESIM)
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -85,6 +90,7 @@ fun RouterSettingsListScreen(
             SettingsItem(Icons.Default.Language, "APN", onClick = onNavigateToAPN)
             SettingsItem(Icons.Default.Router, "LAN / DHCP", onClick = onNavigateToLAN)
             SettingsItem(Icons.Default.Dns, "DNS", onClick = onNavigateToDNS)
+            SettingsItem(Icons.Default.VpnKey, "WireGuard VPN", onClick = onNavigateToWireGuard)
 
             Spacer(modifier = Modifier.height(8.dp))
 
