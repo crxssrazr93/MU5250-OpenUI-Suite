@@ -1,0 +1,48 @@
+/target/
+.claude/
+.agents/
+skills-lock.json
+logs/
+.DS_Store
+device_report.json
+ubus_probe_report.json
+node_modules/
+*.local.json
+
+# Local-only secrets / investigation artifacts (never push)
+/adb-lock-investigation.md
+/back_parameter
+/loopdebug-capture/
+
+# Cross-compilation toolchain, exported from muslcc/x86_64:aarch64-linux-musl.
+# ~200 MB of rootfs; re-create with the docker export in docs/BUILD.md.
+.toolchain/
+
+# Android build state
+mobile/android/OpenU60/.gradle/
+mobile/android/OpenU60/build/
+mobile/android/OpenU60/app/build/
+mobile/android/OpenU60/local.properties
+
+# Swift toolchain for building/testing OpenU60Kit on Linux (~2 GB, see mobile/ios/README.md)
+.toolchain-swift/
+
+# Release signing. The keystore is the identity of the app: anything signed
+# with it can replace an installed copy, and losing it means no installed copy
+# can ever be updated in place again. Keep it, back it up, never commit it.
+mobile/android/OpenU60/keystore.properties
+mobile/android/OpenU60/*.jks
+
+# Built APKs. These were tracked in /dist, which put five 8 MB copies into
+# history and nothing referenced them. Releases carry binaries; git carries
+# source. Build with `./gradlew assembleRelease` in mobile/android/OpenU60.
+/dist/
+*.apk
+
+__pycache__/
+*.pyc
+
+# Quarantined exploit/injection tooling. Kept on disk as a record of what was
+# tried during the July 2026 ADB-recovery work, but deliberately not published:
+# this is the class of tool that bricked the original device. See its README.
+/scripts/research/

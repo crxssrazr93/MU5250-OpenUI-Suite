@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MU5250 OpenUI",
+  "version": "0.1.0",
+  "identifier": "co.rzrxr.mu5250.openui",
+  "build": {
+    "beforeDevCommand": "npm --prefix ../web-app run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm --prefix ../web-app run build",
+    "frontendDist": "../../web-app/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "MU5250 OpenUI",
+        "width": 1120,
+        "height": 800,
+        "minWidth": 380,
+        "minHeight": 560,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Manage a ZTE U60 Pro / MU5250 router",
+    "longDescription": "Desktop shell for the MU5250 OpenUI dashboard. Talks to the on-device agent over the LAN."
+  }
+}

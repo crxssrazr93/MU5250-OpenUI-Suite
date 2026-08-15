@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Reach an agent over plain HTTP on the agent's port, and nothing else.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "http:allow-fetch",
+      "allow": [{ "url": "http://*:9090/*" }]
+    },
+    "http:allow-fetch-cancel",
+    "http:allow-fetch-send",
+    "http:allow-fetch-read-body",
+    "http:allow-fetch-cancel-body"
+  ]
+}

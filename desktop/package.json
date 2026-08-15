@@ -1,0 +1,19 @@
+{
+  "name": "mu5250-openui-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:linux": "./scripts/prepare-appimage.sh && APPIMAGE_EXTRACT_AND_RUN=1 tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.2"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-http": "^2.5.2"
+  }
+}

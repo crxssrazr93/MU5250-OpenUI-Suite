@@ -1,0 +1,38 @@
+# XcodeGen spec. The .xcodeproj is generated rather than committed: it is a
+# large generated file that conflicts on every merge, and it cannot be reviewed.
+#
+#   brew install xcodegen && xcodegen generate
+#
+name: OpenU60
+options:
+  bundleIdPrefix: co.rzrxr.mu5250
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  OpenU60Kit:
+    path: OpenU60Kit
+
+targets:
+  OpenU60:
+    type: application
+    platform: iOS
+    sources:
+      - path: OpenU60
+    dependencies:
+      - package: OpenU60Kit
+        product: OpenU60Kit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.rzrxr.mu5250.openui
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: OpenU60/Info.plist
+        # Unsigned by default so `xcodebuild build` works without an account.
+        # Running on a device needs your own team here or in Xcode.
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO

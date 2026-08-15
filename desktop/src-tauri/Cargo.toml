@@ -1,0 +1,27 @@
+[package]
+name = "mu5250-openui-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop shell for the MU5250 OpenUI dashboard"
+license = "MIT"
+
+# Kept out of the workspace at the repo root: that workspace builds the agent
+# for aarch64-musl, and the desktop shell is a host-native binary with an
+# entirely different dependency set.
+[workspace]
+
+[lib]
+name = "mu5250_openui_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-http = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

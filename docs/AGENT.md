@@ -1,0 +1,102 @@
+# Agent — `zte-agent`
+
+Rust HTTP backend that runs on the modem (`agent/`), talking to ubus, AT
+ports, sysfs/procfs and device services. `agent/src/server.rs` is the
+canonical routing table; this document summarizes it.
+
+- Binds `192.168.0.1:9090` (override `ZTE_AGENT_BIND`, `ZTE_AGENT_THREADS`)
+- Auth: `POST /api/auth/login` (password from `ZTE_AGENT_PASSWORD`, or an
+  optional 6-digit mobile PIN); bearer tokens with a sliding 1 h expiry so a
+  dashboard left open stays logged in, rate-limited login, LAN-only CORS
+- JSON envelope: `{ "ok": true, "data": … }` / `{ "ok": false, "error": … }`
+- Destructive actions (`/api/device/reboot|shutdown`) require the
+  `X-Confirm: true` header
+
+## Endpoint reference
+
+Every route below has a dashboard consumer, and every call the dashboard makes
+is a route below — `scripts/check-api-contract.py` enforces both directions
+(plus that the mock agent stays in step). 55 paths / 60 method+path pairs.
+
+| Family | Endpoints |
+|---|---|
+| Auth | `POST /api/auth/login` — bearer token, sliding 1 h expiry |
+| Batch | `GET /api/dashboard` — device, battery, cpu, memory, speed, data usage, signal, wan, wan6, thermal in one request. The app's heartbeat: Home, Signal and Modem/Data all read it instead of polling their own endpoints |
+| Status | `GET /api/device`, `/api/cpu`, `/api/memory`, `/api/system/top` |
+| Network | `GET /api/network/clients` |
+| Device | `GET /api/device/battery-info`, `/api/device/thermal/all`, `/api/device/battery/detail`, `/api/device/charger`; `POST /api/device/reboot`, `/api/device/shutdown` |
+| System | `POST /api/system/restart-agent`, `/api/system/kill-bloat` |
+| Wi-Fi | `GET /api/wifi/status`, `PUT /api/wifi/settings` |
+| Modem | `PUT /api/data-usage/reset-day`, `PUT /api/modem/network-mode` |
+| Cell/band lock | `POST /api/cell/lock/nr`, `/api/cell/lock/lte`, `/api/cell/lock/reset`, `/api/cell/band/nr`, `/api/cell/band/lte`, `/api/cell/band/reset` |
+| Router | `GET+PUT /api/router/dns`, `/api/router/lan`, `/api/router/apn/mode`; `GET+POST /api/router/apn/profiles`; `POST /api/router/apn/profiles/delete`, `/api/router/apn/profiles/activate` |
+| SMS | `POST /api/sms/list`, `/api/sms/send`, `/api/sms/delete`, `/api/sms/read` (delete falls back to direct SQLite for SIM-stored rows the firmware refuses) |
+| SIM | `GET /api/sim/info`, `/api/sim/imei` |
+| USB | `GET /api/usb/status`, `PUT /api/usb/mode`, `/api/usb/default`, `/api/usb/powerbank` |
+| Power | `GET+PUT /api/device/charge-control` — manual stop/resume + limit enforcer with hysteresis, event-driven off `BSP_CHARGER_EVENT` |
+| Extras | TTL override (`GET /api/ttl/status`, `PUT /api/ttl/set`, `DELETE /api/ttl/clear`), AT console (`POST /api/at/send`, `GET /api/at/port`), signal/connection CSV loggers (`/api/logger/*`) |
+
+## Architecture notes
+
+- **Transport**: `tiny_http` thread pool; no async runtime (small binary,
+  small footprint). The listener is supervised — tiny_http's accept thread
+  exits permanently on its first `accept()` error, so `server::start` watches
+  for that, drains the workers and rebuilds rather than sitting alive serving
+  nothing.
+- **Dependencies**: `serde`, `serde_json`, `tiny_http`, `sha2`, `libc`. No TLS
+  stack and no HTTP client — removing the DoH proxy, SMS forwarder and speed
+  test dropped `ureq`, and with it rustls/ring/ICU.
+- **Subprocess cost**: every `ubus`/`uci` read is a fork+exec, which dominates
+  the agent's CPU. `cache.rs` gives each dashboard source its own TTL (signal
+  2.5 s, thermal 10 s, wan/wan6 30 s, data usage 30 s, cycle dates 300 s), so
+  the client's poll rate is decoupled from the refresh rate and concurrent
+  clients collapse onto one refresh. `wifi_status` dumps whole configs with
+  `ubus::uci_show` instead of issuing one `uci get` per key.
+- **Event bus**: one `ubus listen` process dispatches to subscribers over
+  bounded channels (`BSP_CHARGER_EVENT` → charge enforcer).
+- **State files** (all under `/data/local/tmp/`): `charge_limit.json`,
+  `usb_config.json`, signal/connection CSV logs.
+- **Boot behavior**: `main.rs` runs a one-shot migration that undoes the
+  removed DoH proxy's dnsmasq rewiring (otherwise a device that had DoH
+  enabled would come back up forwarding DNS to a dead port), applies
+  `start_ttl.sh` if present, and re-applies persisted NCM only if explicitly
+  enabled — see [SAFETY.md](SAFETY.md) §2 for why the latter two are acceptable.
+- **Logging**: stdout/stderr go to syslog via `logger -t zte-agent`
+  (`logread -e zte-agent`), not a file on tmpfs.
+
+## Safety constraints built into the agent
+
+- **AT console is allowlisted** (`server.rs`): read-only commands only;
+  `AT+CFUN`, `AT^…`, `AT+CMGD`, `AT$QCRMCALL`, `AT+CLCK`, `AT+CGDCONT=`,
+  `AT+CGACT=` are blocked.
+- **kill-bloat only kills daemons that are safe to kill** — never the
+  `zte_topsw_daemon.conf` sync-barrier set (see SAFETY.md).
+- **Destructive endpoints require `X-Confirm: true`** (`/api/device/reboot`,
+  `/api/device/shutdown`).
+- **Login is rate-limited**: 5 failures per client IP arms a 30 s lockout.
+- **LAN-only bind + LAN-origin CORS** by default.
+- ubus inputs passed through from HTTP are size/depth-validated
+  (`validate.rs`) before forwarding.
+
+## USB modes
+
+See [reference/usb-modes.md](reference/usb-modes.md) for the live-device
+findings: only ECM/RNDIS are exposed by the stock switch; NCM exists in
+configfs and is agent-managed (experimental, gated behind
+`confirm_experimental`), and the ubus `mode` field is not a reliable
+detector of the active composition.
+
+## Building
+
+```sh
+cargo build --release --target aarch64-unknown-linux-musl -p zte-agent
+```
+
+Cross-linker config lives in `.cargo/config.toml`
+(`aarch64-linux-musl-gcc`). `cargo test` runs the unit tests (auth lockout
+and token expiry, dashboard payload shapes, TTL cache, UCI value unquoting,
+USB boot guards, WiFi sanitizers).
+
+`python3 scripts/check-api-contract.py` asserts the agent route table, the
+dashboard's calls and the mock agent's fixtures all agree — run it after
+touching any of the three.
