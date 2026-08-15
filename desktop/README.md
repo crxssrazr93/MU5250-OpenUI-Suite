@@ -1,54 +1,54 @@
 # Desktop app
 
-A Tauri shell around the same React dashboard the agent serves from the router.
-There is no second frontend: `web-app` is the frontend, built by the Tauri build
-and embedded. Everything the dashboard knows about the firmware stays in one
-place, and a fix to a screen fixes it in the browser and on the desktop at once.
+This is a Tauri shell around the same React dashboard the agent serves from the
+router. There is no second frontend. `web-app` is the frontend. The Tauri build
+builds it and embeds it. Everything the dashboard knows about the firmware stays
+in one place. A fix to a screen fixes it in the browser and on the desktop at
+once.
 
 ## Why it is not just a window pointed at the router
 
-Two things differ once the page is not served by the router.
+Two things change once the router does not serve the page.
 
-**There is no address to inherit.** In a browser the agent is on the host that
-served the page. A desktop window has no such host, so the address is asked for
-once and kept in `localStorage`.
+**There is no address to inherit.** In a browser, the agent is on the host that
+served the page. A desktop window has no such host. So the app asks for the
+address once and keeps it in `localStorage`.
 
-**The agent will not accept the window's origin.** The agent only allows
-cross-origin requests from LAN addresses, and a desktop origin is not one. That
-check is worth keeping exactly as it is — relaxing it to admit a desktop app
-would admit other pages too. So the desktop build issues its requests from Rust
-through `tauri-plugin-http` instead of from the webview. A request made outside
-a browser has no origin to police, which goes around CORS rather than weakening
-it.
+**The agent will not accept the window's origin.** The agent allows cross-origin
+requests only from LAN addresses. A desktop origin is not one. Keep that check
+exactly as it is. If you relax it to admit a desktop app, you admit other pages
+too. So the desktop build sends its requests from Rust through
+`tauri-plugin-http`, not from the webview. A request made outside a browser has
+no origin to police. This goes around CORS. It does not weaken CORS.
 
 `web-app/src/data/host.ts` holds both decisions. In a browser it resolves to the
-page's own host and the browser's `fetch`; under Tauri, to the stored address
-and the plugin's. Nothing else in the dashboard knows the difference.
+page's own host and the browser's `fetch`. Under Tauri it resolves to the stored
+address and the plugin's request. Nothing else in the dashboard knows the
+difference.
 
 ## Which addresses it may reach
 
-Two layers, because neither is sufficient alone.
+There are two layers, because neither is enough alone.
 
 The Tauri capability (`src-tauri/capabilities/default.json`) limits the HTTP
-plugin to plain HTTP on port 9090. It cannot be narrower: Tauri matches these
-with `urlpattern`, and the Rust implementation will not match a wildcard across
-a dot. `http://192.168.*.*:9090/*` matches nothing at all, and `192.168.*` does
-not match `192.168.0.1` either — verified against `urlpattern` 0.3.0, which is
-where the browser implementation and this one part company. Only an exact host
-or a bare `*` works, and the host is not known until the user types it.
+plugin to plain HTTP on port 9090. It cannot be narrower. Tauri matches these
+with `urlpattern`, and the Rust implementation does not match a wildcard across
+a dot. `http://192.168.*.*:9090/*` matches nothing at all. `192.168.*` does not
+match `192.168.0.1` either. This was verified against `urlpattern` 0.3.0, which
+is where the browser implementation and this one differ. Only an exact host or a
+bare `*` works, and the host is not known until the user types it.
 
-So the real restriction is applied to the address itself, in `isPrivateAddress`:
-loopback or RFC1918, the same rule the agent applies to origins. It is checked
-when the address is entered and again when it is read back from storage.
+So the real restriction applies to the address itself, in `isPrivateAddress`. It
+allows loopback or RFC1918, the same rule the agent applies to origins. It is
+checked when the address is entered, and again when it is read back from storage.
 
-Note the scope also has to sit on `http:allow-fetch` rather than on the
-`http:default` set. `fetch` reads it as a `CommandScope`, and entries attached
-to the set never reach it — every request comes back "url not allowed on the
-configured scope".
+The scope also has to sit on `http:allow-fetch`, not on the `http:default` set.
+`fetch` reads it as a `CommandScope`. Entries attached to the set never reach it.
+Every request then comes back "url not allowed on the configured scope".
 
 ## Building
 
-Needs the Rust toolchain, Node, and on Linux `webkit2gtk-4.1` plus `librsvg`.
+You need the Rust toolchain, Node, and on Linux `webkit2gtk-4.1` plus `librsvg`.
 
 ```sh
 npm install
@@ -60,50 +60,51 @@ The build produces a 7.8 MB binary at
 `src-tauri/target/release/mu5250-openui-desktop` and a 3.5 MB `.deb`.
 
 **The binary is not self-contained.** It links webkit2gtk-4.1, gtk-3, libsoup-3
-and javascriptcoregtk-4.1 from the system, which the `.deb` declares as
-`libwebkit2gtk-4.1-0, libgtk-3-0`. On a distribution that packages those — Arch
-and its derivatives included — running the binary directly is the simplest
-option, and it is what was tested here. On anything else, install those first.
+and javascriptcoregtk-4.1 from the system. The `.deb` declares those as
+`libwebkit2gtk-4.1-0, libgtk-3-0`. On a distribution that packages them, which
+includes Arch and its derivatives, run the binary directly. That is the simplest
+option, and it is the tested one. On any other distribution, install those
+first.
 
 ### AppImage: works, deliberately off
 
-`"appimage"` is not in `bundle.targets`. It builds and runs — it was produced,
-launched and signed in to against the live agent — but the GTK plugin bundles
-the whole GTK and WebKit stack, so it comes out at **102 MB against the deb's
-3.5 MB**, thirty times the size to solve a dependency problem that Arch does
-not have. Add `"appimage"` back to `bundle.targets` and use `npm run
-build:linux` if you want it.
+`"appimage"` is not in `bundle.targets`. It builds and runs. It was produced,
+launched, and signed in to against the live agent. But the GTK plugin bundles the
+whole GTK and WebKit stack, so it comes out at **102 MB against the deb's 3.5
+MB**. That is thirty times the size, to solve a dependency problem that Arch does
+not have. To build it, add `"appimage"` back to `bundle.targets` and use `npm run
+build:linux`.
 
 ### Why the AppImage build fails on a fresh machine
 
 `failed to bundle project: 'failed to run linuxdeploy'` is the only thing Tauri
-says, whatever the actual cause. `scripts/prepare-appimage.sh` fixes the two
-causes seen here, and `npm run build:linux` runs it first. Both live in
-`~/.cache/tauri`, outside the repo, so a fresh machine hits them again.
+reports, whatever the real cause. `scripts/prepare-appimage.sh` fixes the two
+causes seen here, and `npm run build:linux` runs it first. Both files live in
+`~/.cache/tauri`, outside the repo, so a fresh machine meets them again.
 
 **A truncated download, cached forever.** Tauri fetches linuxdeploy once and
-reuses it without checking it. The copy here was 16 KB against a real 19.8 MB,
-and a 16 KB linuxdeploy exits 1 printing nothing — which is exactly why the
-error message is empty. The script size-checks and re-fetches.
+reuses it without a check. The copy here was 16 KB against a real 19.8 MB. A 16
+KB linuxdeploy exits 1 and prints nothing, which is why the error message is
+empty. The script checks the size and re-fetches.
 
 **The GTK plugin finding VMware's libraries.** It runs a *recursive* `find` over
-the pkg-config libdir, so on a machine with VMware installed it picks up
-`/usr/lib/vmware/lib/…`, whose bundled `libgdk_pixbuf` wants
-`libcroco-0.6.so.3` — gone from distributions years ago. The plugin already
-passes `--exclude-library="*vmware*"`, but that only filters transitively
-resolved dependencies, not paths it passed explicitly, so the script prunes the
-directory from the `find` instead. It matches on the exact line and skips
-quietly if upstream changes it, rather than corrupting the script.
+the pkg-config libdir. On a machine with VMware installed it picks up
+`/usr/lib/vmware/lib/…`. That bundled `libgdk_pixbuf` wants `libcroco-0.6.so.3`,
+which distributions removed years ago. The plugin already passes
+`--exclude-library="*vmware*"`, but that filters only transitively resolved
+dependencies, not paths it passed explicitly. So the script prunes the directory
+from the `find` instead. It matches the exact line and skips quietly when
+upstream changes it, rather than corrupt the script.
 
-linuxdeploy is itself an AppImage, so running it wants FUSE;
-`APPIMAGE_EXTRACT_AND_RUN=1` avoids that and `build:linux` sets it.
+linuxdeploy is itself an AppImage, so running it wants FUSE.
+`APPIMAGE_EXTRACT_AND_RUN=1` avoids that, and `build:linux` sets it.
 
-Kept even though the target is off, because the two failures cost an afternoon
-to identify and neither is discoverable from the error message.
+This is kept even though the target is off. The two failures cost an afternoon to
+identify, and neither is discoverable from the error message.
 
 ## Testing it without a router on your desk
 
-The window can be driven on a virtual display, which is how the flow above was
+You can drive the window on a virtual display. This is how the flow above was
 verified end to end:
 
 ```sh
@@ -115,7 +116,7 @@ DISPLAY=:97 import -window root shot.png
 ```
 
 Release builds have no devtools, so a failing request shows up only as the
-message on screen. `client.ts` deliberately appends the underlying reason to it:
-in a browser that is always an opaque network error, but here it is the Rust
-side talking, and it is the difference between "cannot reach the agent" and
+message on screen. `client.ts` appends the underlying reason to that message on
+purpose. In a browser the reason is always an opaque network error. Here it is
+the Rust side talking. It is the difference between "cannot reach the agent" and
 "url not allowed on the configured scope".
