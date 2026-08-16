@@ -48,6 +48,17 @@ fn main() {
         std::process::exit(euicc_probe());
     }
 
+    // Power-cycle the card over QMI UIM (POWER_OFF_SIM then POWER_ON_SIM).
+    //
+    // Development probe only. It tests whether a modem-driven card re-init makes
+    // a freshly enabled eSIM profile visible without a full router reboot — the
+    // REFRESH substitute this modem's missing CAT path denies. Not wired into
+    // the enable flow; run by hand to measure the outcome.
+    //   zte-agent uim-power-cycle
+    if std::env::args().nth(1).as_deref() == Some("uim-power-cycle") {
+        std::process::exit(uim_power_cycle());
+    }
+
     // Run lpac with this agent as its APDU/HTTP backend and print the raw
     // result. Development aid for validating the bridge on-device.
     //   zte-agent lpac chip info
@@ -156,6 +167,51 @@ fn euicc_probe() -> i32 {
         }
         Err(e) => eprintln!("profiles failed: {e}"),
     }
+    0
+}
+
+/// Power-cycle the card over QMI UIM and report card status either side.
+///
+/// This exercises the one primitive the enable flow never calls. If a modem
+/// card re-init picks up a profile the eUICC already switched locally, this is
+/// a reboot-free path where ES10 REFRESH fails. If the card comes back on the
+/// same profile, the reboot really is load-bearing. Read the modem's ICCID
+/// before and after (via `/api/sim/info`) to tell which happened.
+fn uim_power_cycle() -> i32 {
+    use qmi::uim::UimClient;
+
+    let mut client = match UimClient::connect() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("uim connect    : {e}");
+            return 1;
+        }
+    };
+
+    match client.power_off_card() {
+        Ok(()) => println!("power_off_card : ok"),
+        Err(e) => {
+            // Do not leave the card down: try to bring it back before giving up.
+            eprintln!("power_off_card : {e}");
+            let _ = client.power_on_card();
+            return 1;
+        }
+    }
+
+    // Give the card a moment down before re-powering, the way a slot reset would.
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    match client.power_on_card() {
+        Ok(()) => println!("power_on_card  : ok"),
+        Err(e) => {
+            eprintln!("power_on_card  : {e}");
+            return 1;
+        }
+    }
+
+    // Card init runs asynchronously after POWER_ON; wait before it is read back.
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    println!("done           : card re-init requested; re-read /api/sim/info");
     0
 }
 

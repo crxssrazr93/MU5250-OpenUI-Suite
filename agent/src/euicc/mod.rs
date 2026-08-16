@@ -335,6 +335,143 @@ fn with_radio_parked<T>(work: impl FnOnce() -> T) -> T {
     result
 }
 
+/// Reset the card over QMI so the modem re-selects the eUICC's applications.
+///
+/// This is the REFRESH substitute. `EnableProfile` switches the profile on the
+/// card, but SGP.22 leaves the modem on the old one until a REFRESH proactive
+/// command — which this firmware has no CAT path to deliver. A UIM
+/// `POWER_OFF_SIM` / `POWER_ON_SIM` is a card reset the modem drives itself, so
+/// the eUICC presents the newly enabled profile and the modem attaches to it
+/// with no reboot. Verified on hardware: `AT+CIMI` follows the switch after this
+/// runs, where it stayed on the old IMSI without it.
+///
+/// Run it with the radio parked. An online modem holds a session on the card and
+/// the power-off races it; parked, the card is free and the reset is clean.
+fn power_cycle_card() -> Result<(), String> {
+    let mut uim = UimClient::connect().map_err(|e| format!("card power-cycle: connect: {e}"))?;
+    uim.power_off_card()
+        .map_err(|e| format!("card power-cycle: power off: {e}"))?;
+    // The card needs a beat down before it is powered back up, the way a slot
+    // reset would leave it.
+    std::thread::sleep(Duration::from_millis(1_500));
+    uim.power_on_card()
+        .map_err(|e| format!("card power-cycle: power on: {e}"))?;
+    // Card init runs asynchronously after POWER_ON; let it finish before the
+    // modem — or the notification step that follows — reads the card again.
+    std::thread::sleep(Duration::from_secs(3));
+    Ok(())
+}
+
+/// Is `iccid` currently the enabled profile?
+///
+/// Reads the card directly, without taking the lock, so it is safe to call
+/// inside an operation that already holds it — the same rule as
+/// [`queued_sequences`].
+fn profile_enabled(iccid: &str) -> bool {
+    let Ok(listed) = lpac::run(&["profile", "list"]) else {
+        return false;
+    };
+    listed.payload["data"]
+        .as_array()
+        .map(|items| {
+            items.iter().any(|p| {
+                p["iccid"].as_str() == Some(iccid)
+                    && p["profileState"].as_str() == Some("enabled")
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// A synthetic success, for when the card is already in the state asked for.
+fn state_reached() -> lpac::LpacResult {
+    lpac::LpacResult {
+        payload: serde_json::json!({"code": 0, "data": serde_json::Value::Null, "message": "success"}),
+        progress: Vec::new(),
+        applied_live: false,
+    }
+}
+
+/// Run an enable/disable, with the card's actual state — not lpac's return code
+/// — as the arbiter of success.
+///
+/// This eUICC intermittently fails `EnableProfile` / `DisableProfile` with a
+/// transient error (`data: "unknown"`, no progress) while the modem still holds
+/// the card, and once a retry has applied the switch it fails the *next* attempt
+/// with `profileNotInDisabledState` / `profileNotInEnabledState` — the change
+/// asked for has already happened. Neither is a real failure. So the operation
+/// is idempotent: if the card already reads the way the caller wants, before or
+/// after any attempt, that is success. A genuine refusal (bad ICCID, a policy
+/// rule) never reaches the wanted state and still fails after the retries.
+fn switch_until(
+    args: &[&str],
+    reached: impl Fn() -> bool,
+) -> Result<lpac::LpacResult, String> {
+    const ATTEMPTS: usize = 4;
+
+    if reached() {
+        return Ok(state_reached());
+    }
+
+    let mut result = lpac::run(args)?;
+    let mut tries = 1;
+    while !reached() && result.payload["code"].as_i64().unwrap_or(0) != 0 && tries < ATTEMPTS {
+        std::thread::sleep(Duration::from_millis(2_500));
+        result = lpac::run(args)?;
+        tries += 1;
+    }
+
+    // The card is what matters. If it reached the wanted state, report success
+    // even when the last attempt returned the "already done" error.
+    if reached() && result.payload["code"].as_i64().unwrap_or(-1) != 0 {
+        result.payload =
+            serde_json::json!({"code": 0, "data": serde_json::Value::Null, "message": "success"});
+    }
+    Ok(result)
+}
+
+/// Make a profile switch that just succeeded on the card take effect on the
+/// modem, and record which way it went.
+///
+/// A failed power-cycle is not fatal: the profile is switched on the card, so
+/// the caller falls back to telling the user to reboot, exactly as before this
+/// path existed.
+fn apply_switch(result: &mut lpac::LpacResult) {
+    match power_cycle_card() {
+        Ok(()) => {
+            result.applied_live = true;
+            result.progress.push("switch_applied_via_card_power_cycle".into());
+        }
+        Err(e) => result.progress.push(format!("switch_pending_reboot: {e}")),
+    }
+}
+
+/// Switch a profile and carry the switch to the modem.
+///
+/// Runs the enable/disable with the radio parked, retrying on the card's actual
+/// state (see [`switch_until`]), then power-cycles the card so the modem picks up
+/// the new profile without a reboot ([`apply_switch`]).
+///
+/// A note on `catBusy`, which the retries here paper over but cannot cure: after
+/// an enable the eUICC queues a REFRESH proactive command, and this modem has no
+/// CAT path to fetch it, so it can sit pending and hold the toolkit. While it
+/// does, the next switch is refused with `catBusy`. Nothing reachable from
+/// software reliably clears a pending proactive command on this firmware — a NAS
+/// detach (`AT+COPS=2`), stopping the data manager, `low_power`, and a card
+/// power-cycle were all tried and none is dependable; only a reboot is. So the
+/// retries catch the common case where the command clears on its own within a
+/// few seconds, and a switch that stays refused returns a clear reboot notice
+/// rather than a silent failure. See [`switch_response`](api::switch_response).
+fn robust_switch(
+    args: &[&str],
+    reached: impl Fn() -> bool,
+) -> Result<lpac::LpacResult, String> {
+    let mut result = with_radio_parked(|| switch_until(args, &reached))?;
+    if reached() && result.payload["code"].as_i64().unwrap_or(0) == 0 {
+        apply_switch(&mut result);
+    }
+    Ok(result)
+}
+
 /// Sequence numbers the card currently has queued.
 ///
 /// Assumes the card lock is already held — this only runs inside an operation,
@@ -395,6 +532,66 @@ fn report_new_notifications(before: &[u64], result: &mut lpac::LpacResult) {
     );
 }
 
+/// Keep the card's notification store from filling up on a WAN-less router.
+///
+/// Every enable and disable queues a notification for the operator's SM-DP+, and
+/// a router with no WAN can never deliver them, so they accumulate for as long
+/// as the user keeps switching profiles. A full store makes the card refuse the
+/// next switch. Once the backlog passes a high-water mark, the oldest
+/// enable/disable notifications are dropped to make room.
+///
+/// Install and delete notifications are never dropped: those the operator
+/// genuinely needs. A dropped delete strands the activation code at the SM-DP+,
+/// so a profile can never be reinstalled — see [`delete_profile`]. Enable and
+/// disable notifications are only informational, and undeliverable here anyway.
+///
+/// Best effort: this runs after the switch already succeeded, so a failure to
+/// prune must not turn a good operation into a reported error. The lock is
+/// already held by [`with_notification`].
+fn prune_notification_backlog() {
+    const KEEP: usize = 32;
+
+    let Ok(listed) = lpac::run(&["notification", "list"]) else {
+        return;
+    };
+    let Some(items) = listed.payload["data"].as_array() else {
+        return;
+    };
+    if items.len() <= KEEP {
+        return;
+    }
+
+    let mut prunable: Vec<u64> = items
+        .iter()
+        .filter(|n| {
+            matches!(
+                n["profileManagementOperation"].as_str(),
+                Some("enable" | "disable")
+            )
+        })
+        .filter_map(|n| n["seqNumber"].as_u64())
+        .collect();
+    prunable.sort_unstable(); // oldest sequence numbers first
+
+    let overflow = items.len().saturating_sub(KEEP);
+    let drop: Vec<String> = prunable
+        .into_iter()
+        .take(overflow)
+        .map(|seq| seq.to_string())
+        .collect();
+    if drop.is_empty() {
+        return;
+    }
+
+    let mut args = vec!["notification", "remove"];
+    args.extend(drop.iter().map(String::as_str));
+    let _ = lpac::run(&args);
+    eprintln!(
+        "[euicc] pruned {} old enable/disable notifications so the card's store cannot fill",
+        drop.len()
+    );
+}
+
 /// Run a profile operation and report it to the operator before returning.
 ///
 /// SGP.22 has the card queue a notification for every profile change, and the
@@ -424,6 +621,7 @@ fn with_notification(
     let mut result = run_operation()?;
     if result.payload["code"].as_i64().unwrap_or(0) == 0 {
         report_new_notifications(&before, &mut result);
+        prune_notification_backlog();
     }
     Ok(result)
 }
@@ -453,20 +651,19 @@ pub fn validate_iccid(iccid: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-/// Enable a profile.
+/// Enable a profile, and make the switch take effect on the modem.
 ///
-/// `refresh` asks the card to issue a REFRESH proactive command so the modem
-/// re-reads the card immediately instead of at the next reboot.
+/// The card accepts `ES10c EnableProfile`, but SGP.22 leaves the modem on the
+/// old profile until a REFRESH proactive command, which this firmware has no CAT
+/// path to deliver. So `refresh` (the card-issued REFRESH) is rejected here —
+/// `ES10c EnableProfile` with the flag set fails while the same call without it
+/// succeeds. Instead, on the default path the modem is refreshed with a QMI card
+/// power-cycle after the switch (see [`apply_switch`]), which needs no CAT path
+/// and takes effect with no reboot. `LpacResult::applied_live` records whether
+/// that succeeded, so the caller can fall back to a reboot notice if it did not.
 ///
-/// It defaults to **off**, which is the opposite of what you would want, because
-/// this device rejects it: `ES10c EnableProfile` with the refresh flag set fails
-/// with `es10c_enable_profile`, while the same call without it succeeds. That
-/// matches the rest of this firmware — it exposes no usable STK/CAT path, so the
-/// card has no way to deliver a REFRESH to the modem.
-///
-/// The consequence is visible to the user and must be surfaced, not hidden: the
-/// profile really is switched on the card, but the modem keeps using the old one
-/// until the router reboots. Callers should tell the user that.
+/// `refresh: true` is kept for hardware that does support it, and marks the
+/// switch live on its own when the card accepts it.
 pub fn enable_profile(
     iccid: &str,
     refresh: bool,
@@ -474,12 +671,19 @@ pub fn enable_profile(
 ) -> Result<lpac::LpacResult, String> {
     let iccid = validate_iccid(iccid)?;
     with_notification(use_relay, || {
-        with_radio_parked(|| {
-            let mut args = vec!["profile", "enable", iccid.as_str()];
-            if refresh {
-                args.push("1");
+        if refresh {
+            // Legacy REFRESH path, kept for hardware that supports it. This modem
+            // rejects it; the default path below is what actually works here.
+            let mut result =
+                with_radio_parked(|| lpac::run(&["profile", "enable", iccid.as_str(), "1"]))?;
+            if result.payload["code"].as_i64().unwrap_or(0) == 0 {
+                result.applied_live = true;
             }
-            lpac::run(&args)
+            return Ok(result);
+        }
+        let target = iccid.clone();
+        robust_switch(&["profile", "enable", target.as_str()], || {
+            profile_enabled(&target)
         })
     })
 }
@@ -519,12 +723,17 @@ pub fn disable_profile(
 
     // Taken after the last-enabled check above, which reads the card itself.
     with_notification(use_relay, || {
-        with_radio_parked(|| {
-            let mut args = vec!["profile", "disable", iccid.as_str()];
-            if refresh {
-                args.push("1");
+        if refresh {
+            let mut result =
+                with_radio_parked(|| lpac::run(&["profile", "disable", iccid.as_str(), "1"]))?;
+            if result.payload["code"].as_i64().unwrap_or(0) == 0 {
+                result.applied_live = true;
             }
-            lpac::run(&args)
+            return Ok(result);
+        }
+        let target = iccid.clone();
+        robust_switch(&["profile", "disable", target.as_str()], || {
+            !profile_enabled(&target)
         })
     })
 }
