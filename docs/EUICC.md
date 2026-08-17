@@ -237,26 +237,63 @@ The agent rejects a value that reaches lpac's argv when it is empty,
 control-bearing, or `-`-prefixed. So nothing a client sends can be read as a
 flag. An ICCID must be 18 to 22 digits.
 
-### This modem cannot REFRESH
+### This modem cannot REFRESH, so the card is power-cycled instead
 
 `ES10c EnableProfile` **fails** on this device when the refresh flag is set. It
 succeeds without it. This is consistent with the rest of the firmware, which
 exposes no usable STK/CAT path. So the card has no way to deliver a REFRESH
-proactive command to the modem.
+proactive command to the modem, and after a plain enable the modem keeps reading
+the old profile. `lpac profile list` shows the new profile enabled, while
+`get_sim_info` still reports the old ICCID and IMSI.
 
-The practical effect: after an enable or a disable, the card has switched, but
-the modem keeps reading the old profile **until the router reboots**. This was
-verified directly. `lpac profile list` showed the new profile enabled, while
-`get_sim_info` still reported the old ICCID and IMSI. A reboot resolved it.
+The agent applies the switch itself with a **QMI card power-cycle**
+(`UIM_POWER_OFF_SIM` then `UIM_POWER_ON_SIM`). A power-cycle is a card reset the
+modem drives without any CAT path, so the eUICC presents the newly enabled
+profile and the modem attaches to it. This was verified on hardware: `AT+CIMI`
+followed the switch from one profile's IMSI to the next with no reboot, where it
+stayed on the old IMSI without the power-cycle. `enable_profile` and
+`disable_profile` run it after the switch, inside the radio park.
 
-So `refresh` defaults to off, and a successful switch returns:
+A successful switch now returns:
 
 ```json
-{"ok": true, "data": {"reboot_required": true, "notice": "..."}}
+{"ok": true, "data": {"applied_live": true, "reboot_required": false, "notice": "..."}}
 ```
 
-Clients must surface that. A silent switch that shows no change reads as a failed
-operation.
+Two caveats the response and the client must respect:
+
+* **The status display lags.** `zwrt_zte_mdm get_sim_info` reads a cache the
+  power-cycle does not refresh, so the SIM tiles keep showing the old profile
+  until the next modem re-init even though the radio has switched. The `notice`
+  says so.
+* **`catBusy`.** After an enable the eUICC queues a REFRESH proactive command,
+  and this modem has no CAT path to fetch it, so it can sit pending and hold the
+  card's toolkit. While it does, the next switch is refused with `enableResult
+  05` (`catBusy`, which `lpac` surfaces as the opaque `es10c_enable_profile` /
+  `data: "unknown"`). It is intermittent: the pending command often clears on its
+  own within a few seconds, and the switch's retries (`switch_until`) catch that
+  case. When it does not clear, no software step reliably forces it — a NAS
+  detach (`AT+COPS=2`), stopping the data connection manager, the radio park's
+  `low_power`, and a card power-cycle were each tried on hardware and none is
+  dependable; only a reboot is. So a switch that stays refused fails cleanly with
+  a `reboot_required` response and a message that says to reboot and retry, and
+  the card is never left half-switched.
+
+The switch is **idempotent**. The card rejects re-enabling an already-enabled
+profile with `profileNotInDisabledState` (and re-disabling with
+`profileNotInEnabledState`); once a retry has applied a switch it rejects the
+next attempt the same way. So the agent treats the card's actual state, not
+`lpac`'s return code, as the arbiter of success.
+
+### Notification backlog on a WAN-less router
+
+Every enable and disable queues a notification for the operator's SM-DP+, and a
+router with no WAN can never deliver them (see the relay, below), so they pile up
+for as long as the user keeps switching. A full notification store makes the card
+refuse the next switch. So once the backlog passes a high-water mark the oldest
+**enable/disable** notifications are dropped to make room. Install and delete
+notifications are never dropped — the operator genuinely needs those, and a
+dropped delete strands the activation code at the SM-DP+.
 
 ## The relay: downloading without a WAN
 
@@ -328,7 +365,8 @@ Against the real card on `XCBZ_HK_MU5250V1.0.0B04`:
   `getBoundProfilePackage`, and `loadBoundProfilePackage`. It landed as a second,
   disabled profile next to the existing one.
 - a notification was delivered to the SM-DP+ and removed from the card.
-- enable and disable switch the card correctly, and need a reboot to take effect.
+- enable and disable switch the card correctly, and the QMI card power-cycle
+  carries the switch to the modem live, no reboot (see above).
 
 ### Notifications can outlive their server
 

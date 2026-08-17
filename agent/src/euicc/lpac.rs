@@ -62,6 +62,10 @@ pub struct LpacResult {
     pub payload: Value,
     /// Progress messages, in order. Useful for surfacing download steps.
     pub progress: Vec<String>,
+    /// True when a profile switch in this call was made live on the modem (via
+    /// the card power-cycle), so it takes effect without a reboot. Left false by
+    /// everything that is not a switch.
+    pub applied_live: bool,
 }
 
 /// Run `lpac <args>` with this agent as its APDU and HTTP backend.
@@ -151,6 +155,13 @@ pub fn run(args: &[&str]) -> Result<LpacResult, String> {
         })
         .unwrap_or_default();
 
+    // Surface lpac's own diagnostics (it only writes stderr on debug or error).
+    // Without this an ES10 refusal reaches the caller as a bare function name
+    // with no status word to act on.
+    if !stderr.trim().is_empty() {
+        eprintln!("[lpac] {}", stderr.trim());
+    }
+
     if !status.success() && payload.is_null() {
         return Err(format!(
             "lpac exited with {}: {}",
@@ -159,7 +170,7 @@ pub fn run(args: &[&str]) -> Result<LpacResult, String> {
         ));
     }
 
-    Ok(LpacResult { payload, progress })
+    Ok(LpacResult { payload, progress, applied_live: false })
 }
 
 fn write_reply(stdin: &mut impl Write, kind: &str, payload: Value) -> Result<(), String> {

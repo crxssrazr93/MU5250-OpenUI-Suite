@@ -194,26 +194,60 @@ fn lpac_response(result: Result<LpacResult, String>) -> (u16, Value) {
     }
 }
 
-/// Flag a successful switch as needing a reboot to take effect.
+/// Build the HTTP response for a profile enable or disable.
 ///
-/// Without REFRESH the card is switched but the modem still reads the old
-/// profile, so the user sees no change and assumes it failed. Saying so is the
-/// difference between a confusing no-op and a clear next step.
-fn with_reboot_notice((status, mut body): (u16, Value), refreshed: bool) -> (u16, Value) {
-    if status == 200 && !refreshed {
-        if let Some(data) = body["data"].as_object_mut() {
-            data.insert("reboot_required".into(), Value::Bool(true));
-            data.insert(
-                "notice".into(),
-                Value::String(
-                    "The profile was switched on the card, but this modem cannot be \
-                     refreshed live. Reboot the router for it to take effect."
-                        .into(),
-                ),
-            );
-        }
+/// The switch either took effect live — the card was switched and the modem
+/// picked it up from the QMI card power-cycle — or it did not, in which case the
+/// card is switched but the modem still reads the old profile until the router
+/// reboots. Either way the user needs to be told which, so the response carries
+/// both `applied_live` and a matching `notice`. A stale display after a live
+/// switch is called out too: the modem is on the new profile, but the SIM status
+/// tiles, which read a cache the power-cycle does not refresh, lag until the next
+/// modem re-init.
+fn switch_response(result: Result<LpacResult, String>) -> (u16, Value) {
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => return (503, json!({"ok": false, "error": e})),
+    };
+
+    let code = result.payload["code"].as_i64().unwrap_or(0);
+    if code != 0 {
+        let raw = result.payload["message"].as_str().unwrap_or("operation failed");
+        // The bare lpac function name (`es10c_enable_profile`) tells the user
+        // nothing to act on. The failure that survives the retries in
+        // `switch_until` is almost always the card's toolkit being held by the
+        // modem's network selection (`catBusy`), which only a reboot clears on
+        // this firmware — so say that.
+        let error = if raw.starts_with("es10c_enable_profile") || raw.starts_with("es10c_disable_profile") {
+            "The card refused the profile switch. On this modem an active network \
+             search can hold the card's toolkit; reboot the router and try the switch again."
+                .to_string()
+        } else {
+            raw.to_string()
+        };
+        return (
+            502,
+            json!({"ok": false, "error": error, "data": {"progress": result.progress, "reason": raw}}),
+        );
     }
-    (status, body)
+
+    let notice = if result.applied_live {
+        "Profile switched and applied to the modem — no reboot needed. The SIM status \
+         tiles refresh at the next modem re-init."
+    } else {
+        "The profile was switched on the card, but this modem could not be refreshed \
+         live. Reboot the router for it to take effect."
+    };
+    (
+        200,
+        json!({"ok": true, "data": {
+            "result": result.payload["data"],
+            "progress": result.progress,
+            "applied_live": result.applied_live,
+            "reboot_required": !result.applied_live,
+            "notice": notice,
+        }}),
+    )
 }
 
 /// Guard every write route: without lpac there is no write path at all, and a
@@ -288,10 +322,7 @@ pub fn euicc_enable(body: &[u8]) -> (u16, Value) {
     if let Some(refused) = require_relay_client(use_relay) {
         return refused;
     }
-    with_reboot_notice(
-        lpac_response(enable_profile(&iccid, refresh, use_relay)),
-        refresh,
-    )
+    switch_response(enable_profile(&iccid, refresh, use_relay))
 }
 
 /// POST /api/euicc/disable — body: `{"iccid": "...", "force": false}`
@@ -315,7 +346,7 @@ pub fn euicc_disable(body: &[u8]) -> (u16, Value) {
     match disable_profile(&iccid, force, refresh, use_relay) {
         // The last-enabled-profile guard is a client mistake, not a card fault.
         Err(e) if e.starts_with("refusing") => (409, json!({"ok": false, "error": e})),
-        other => with_reboot_notice(lpac_response(other), refresh),
+        other => switch_response(other),
     }
 }
 
@@ -574,6 +605,7 @@ mod write_api_tests {
         let failed = LpacResult {
             payload: json!({"code": -1, "message": "profile not found"}),
             progress: vec![],
+            applied_live: false,
         };
         let (status, body) = lpac_response(Ok(failed));
         assert_eq!(status, 502);
@@ -586,6 +618,7 @@ mod write_api_tests {
         let ok = LpacResult {
             payload: json!({"code": 0, "data": {"eid": "89"}}),
             progress: vec!["downloading".into()],
+            applied_live: false,
         };
         let (status, body) = lpac_response(Ok(ok));
         assert_eq!(status, 200);
@@ -596,22 +629,45 @@ mod write_api_tests {
 
     #[test]
     fn flags_a_switch_that_needs_a_reboot() {
-        let ok = (200, json!({"ok": true, "data": {"result": null}}));
-        let (status, body) = with_reboot_notice(ok, false);
+        // Card switched but the power-cycle did not carry it to the modem.
+        let pending = LpacResult {
+            payload: json!({"code": 0, "data": null}),
+            progress: vec!["switch_pending_reboot: power on: timed out".into()],
+            applied_live: false,
+        };
+        let (status, body) = switch_response(Ok(pending));
         assert_eq!(status, 200);
         assert_eq!(body["data"]["reboot_required"], true);
+        assert_eq!(body["data"]["applied_live"], false);
         assert!(body["data"]["notice"].as_str().unwrap().contains("Reboot"));
     }
 
     #[test]
-    fn omits_reboot_notice_when_refreshed_or_failed() {
-        // A card that accepted REFRESH needs no reboot.
-        let ok = (200, json!({"ok": true, "data": {"result": null}}));
-        assert!(with_reboot_notice(ok, true).1["data"]["reboot_required"].is_null());
+    fn reports_a_live_switch_without_a_reboot() {
+        // The power-cycle carried the switch to the modem.
+        let live = LpacResult {
+            payload: json!({"code": 0, "data": null}),
+            progress: vec!["switch_applied_via_card_power_cycle".into()],
+            applied_live: true,
+        };
+        let (status, body) = switch_response(Ok(live));
+        assert_eq!(status, 200);
+        assert_eq!(body["data"]["reboot_required"], false);
+        assert_eq!(body["data"]["applied_live"], true);
+        assert!(body["data"]["notice"].as_str().unwrap().contains("no reboot"));
+    }
 
-        // A failure is not a switch, so there is nothing to reboot for.
-        let failed = (502, json!({"ok": false, "error": "nope"}));
-        assert!(with_reboot_notice(failed, false).1["data"]["reboot_required"].is_null());
+    #[test]
+    fn a_failed_switch_is_an_error_not_a_reboot() {
+        let failed = LpacResult {
+            payload: json!({"code": -1, "message": "es10c_enable_profile"}),
+            progress: vec![],
+            applied_live: false,
+        };
+        let (status, body) = switch_response(Ok(failed));
+        assert_eq!(status, 502);
+        assert_eq!(body["ok"], false);
+        assert!(body["data"]["reboot_required"].is_null());
     }
 
     #[test]
